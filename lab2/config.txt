@@ -1,0 +1,5 @@
+N=5
+windowWidth=332
+windowHeight=242
+bgColor=41,35,190
+gridColor=239,0,0
