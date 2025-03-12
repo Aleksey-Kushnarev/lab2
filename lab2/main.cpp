@@ -1,9 +1,13 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include <Windows.h>  // Заголовок для работы с WinAPI
 #include <windowsx.h> // Для удобных макросов работы с координатами и сообщениями
 #include <vector>      // Для использования динамических массивов
 #include <fstream>     // Для работы с файловыми потоками (сохранение/чтение конфигурации)
 #include <sstream>     // Для парсинга строк (например, конфигурационных файлов)
+#include <iostream>
+#include <string>
 
+#include <cstdio>
 
 // Структура для хранения информации о фигурах (круги и крестики)
 struct Shape {
@@ -30,8 +34,13 @@ COLORREF gridLineColor;  // Цвет линий сетки
 COLORREF backgroundColor;  // Цвет фона
 int WIDTH, HEIGHT; // Ширина и высота окна
 int SizeCellsX, SizeCellsY; // Размер одной клетки по горизонтали и вертикали
+int chosenVariant = 1;
+int nFromCommandLine;
+
 
 const std::string configFileName = "config.txt";  // Имя файла для конфигурации
+const std::wstring configFileNameW = L"config.txt";  // Имя файла для конфигурации (для широких символов)
+
 Config config;  // Переменная для хранения конфигурации
 
 std::vector<Shape> shapes; // Массив для хранения фигур (круги и крестики)
@@ -41,32 +50,364 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 // Функции для работы с конфигурацией (чтение и сохранение)
 void ChangeBackgroundColor(HWND hwnd);
-bool SaveConfig(const std::string& filename, const Config& config);
-bool LoadConfig(const std::string& filename, Config& config);
+
+
+
+
+// Функция для загрузки конфигурации из файла
+// Чтение конфигурации из файла
+bool LoadConfigFstream(const std::string& filename, Config& config) {
+    std::ifstream file(filename);
+    if (!file) {
+        return false; // Файл не существует, возвращаем false
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::string key;
+        if (std::getline(iss, key, '=')) {
+            if (key == "N") {
+                iss >> config.N;
+            }
+            else if (key == "windowWidth") {
+                iss >> config.windowWidth;
+            }
+            else if (key == "windowHeight") {
+                iss >> config.windowHeight;
+            }
+            else if (key == "bgColor") {
+                int r, g, b;
+                char comma1, comma2;
+                if (iss >> r >> comma1 >> g >> comma2 >> b && comma1 == ',' && comma2 == ',') {
+                    config.bgColor = RGB(r, g, b);
+                }
+            }
+            else if (key == "gridColor") {
+                int r, g, b;
+                char comma1, comma2;
+                if (iss >> r >> comma1 >> g >> comma2 >> b && comma1 == ',' && comma2 == ',') {
+                    config.gridColor = RGB(r, g, b);
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool LoadConfigMemoryMapped(const std::wstring& filename, Config& config) {
+    HANDLE hFile = CreateFile(filename.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+
+    HANDLE hMap = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!hMap) {
+        CloseHandle(hFile);
+        return false;
+    }
+
+    LPVOID pMap = MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
+    if (!pMap) {
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+        return false;
+    }
+
+    std::string fileContent(static_cast<char*>(pMap)); // Преобразуем память в строку
+    std::istringstream iss(fileContent);
+    std::string line;
+
+    while (std::getline(iss, line)) {
+        std::istringstream lineStream(line);
+        std::string key;
+        if (std::getline(lineStream, key, '=')) {
+            if (key == "N") {
+                lineStream >> config.N;
+            }
+            else if (key == "windowWidth") {
+                lineStream >> config.windowWidth;
+            }
+            else if (key == "windowHeight") {
+                lineStream >> config.windowHeight;
+            }
+            else if (key == "bgColor") {
+                int r, g, b;
+                char comma1, comma2;
+                if (lineStream >> r >> comma1 >> g >> comma2 >> b && comma1 == ',' && comma2 == ',') {
+                    config.bgColor = RGB(r, g, b);
+                }
+            }
+            else if (key == "gridColor") {
+                int r, g, b;
+                char comma1, comma2;
+                if (lineStream >> r >> comma1 >> g >> comma2 >> b && comma1 == ',' && comma2 == ',') {
+                    config.gridColor = RGB(r, g, b);
+                }
+            }
+        }
+    }
+
+    UnmapViewOfFile(pMap);
+    CloseHandle(hMap);
+    CloseHandle(hFile);
+    return true;
+}
+
+
+bool LoadConfigFOpen(const char* filename, Config& config) {
+    FILE* file = nullptr;
+    errno_t err = fopen_s(&file, filename, "r");  // Используем fopen_s вместо fopen
+    if (!file) return false;
+
+    char key[50];
+    while (fscanf(file, "%49[^=]=", key) == 1) {
+        if (strcmp(key, "N") == 0) {
+            fscanf(file, "%d\n", &config.N);
+        }
+        else if (strcmp(key, "windowWidth") == 0) {
+            fscanf(file, "%d\n", &config.windowWidth);
+        }
+        else if (strcmp(key, "windowHeight") == 0) {
+            fscanf(file, "%d\n", &config.windowHeight);
+        }
+        else if (strcmp(key, "bgColor") == 0) {
+            int r, g, b;
+            fscanf(file, "%d,%d,%d\n", &r, &g, &b);
+            config.bgColor = RGB(r, g, b);
+        }
+        else if (strcmp(key, "gridColor") == 0) {
+            int r, g, b;
+            fscanf(file, "%d,%d,%d\n", &r, &g, &b);
+            config.gridColor = RGB(r, g, b);
+        }
+    }
+
+    fclose(file);
+    return true;
+}
+
+bool LoadConfigWinAPI(const std::wstring& filename, Config& config) {
+    HANDLE hFile = CreateFile(filename.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+
+    char buffer[1024] = { 0 };
+    DWORD bytesRead;
+    if (!ReadFile(hFile, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
+        CloseHandle(hFile);
+        return false;
+    }
+
+    std::string fileContent(buffer, bytesRead); // Используем bytesRead, чтобы учитывать только считанные данные
+    std::istringstream iss(fileContent);
+    std::string line;
+
+    while (std::getline(iss, line)) {
+        std::istringstream lineStream(line);
+        std::string key;
+        if (std::getline(lineStream, key, '=')) {
+            if (key == "N") {
+                lineStream >> config.N;
+            }
+            else if (key == "windowWidth") {
+                lineStream >> config.windowWidth;
+            }
+            else if (key == "windowHeight") {
+                lineStream >> config.windowHeight;
+            }
+            else if (key == "bgColor") {
+                int r, g, b;
+                char comma1, comma2;
+                if (lineStream >> r >> comma1 >> g >> comma2 >> b && comma1 == ',' && comma2 == ',') {
+                    config.bgColor = RGB(r, g, b);
+                }
+            }
+            else if (key == "gridColor") {
+                int r, g, b;
+                char comma1, comma2;
+                if (lineStream >> r >> comma1 >> g >> comma2 >> b && comma1 == ',' && comma2 == ',') {
+                    config.gridColor = RGB(r, g, b);
+                }
+            }
+        }
+    }
+
+    CloseHandle(hFile);
+    return true;
+}
+
+// Функция для сохранения конфигурации в файл
+bool SaveConfigFstream(const std::string& filename, const Config& config) {
+    std::ofstream file(filename);
+    if (!file) {
+        return false; // Ошибка при открытии файла для записи
+    }
+
+    file << "N=" << config.N << std::endl;
+    file << "windowWidth=" << config.windowWidth << std::endl;
+    file << "windowHeight=" << config.windowHeight << std::endl;
+    // Запись цветов в конфигурационный файл
+     // Сохраняем цвета в формате R,G,B (каждый компонент числа)
+    file << "bgColor=" << (short)GetRValue(config.bgColor) << ","
+        << (short)GetGValue(config.bgColor) << ","
+        << (short)GetBValue(config.bgColor) << std::endl;
+
+    file << "gridColor=" << (short)GetRValue(config.gridColor) << ","
+        << (short)GetGValue(config.gridColor) << ","
+        << (short)GetBValue(config.gridColor) << std::endl;
+}
+
+
+bool SaveConfigMemoryMapped(const std::wstring& filename, const Config& config) {
+    HANDLE hFile = CreateFile(filename.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+
+    HANDLE hMap = CreateFileMapping(hFile, NULL, PAGE_READWRITE, 0, 1024, NULL);
+    if (!hMap) {
+        CloseHandle(hFile);
+        return false;
+    }
+
+    LPVOID pMap = MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    if (!pMap) {
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+        return false;
+    }
+
+    // Формируем строку конфигурации
+    std::string configStr =
+        "N=" + std::to_string(config.N) + "\n" +
+        "windowWidth=" + std::to_string(config.windowWidth) + "\n" +
+        "windowHeight=" + std::to_string(config.windowHeight) + "\n" +
+        "bgColor=" + std::to_string(GetRValue(config.bgColor)) + "," +
+        std::to_string(GetGValue(config.bgColor)) + "," +
+        std::to_string(GetBValue(config.bgColor)) + "\n" +
+        "gridColor=" + std::to_string(GetRValue(config.gridColor)) + "," +
+        std::to_string(GetGValue(config.gridColor)) + "," +
+        std::to_string(GetBValue(config.gridColor)) + "\n";
+
+    CopyMemory(pMap, configStr.c_str(), configStr.size() + 1);
+
+    UnmapViewOfFile(pMap);
+    CloseHandle(hMap);
+    CloseHandle(hFile);
+    return true;
+}
+
+
+bool SaveConfigFopen(const char* filename, const Config& config) {
+    FILE* file = nullptr;
+    errno_t err = fopen_s(&file, filename, "w");  // Используем fopen_s вместо fopen
+    if (!file) return false;
+
+    fprintf(file, "N=%d\n", config.N);
+    fprintf(file, "windowWidth=%d\n", config.windowWidth);
+    fprintf(file, "windowHeight=%d\n", config.windowHeight);
+    fprintf(file, "bgColor=%d,%d,%d\n",
+        GetRValue(config.bgColor), GetGValue(config.bgColor), GetBValue(config.bgColor));
+    fprintf(file, "gridColor=%d,%d,%d\n",
+        GetRValue(config.gridColor), GetGValue(config.gridColor), GetBValue(config.gridColor));
+
+    fclose(file);
+    return true;
+}
+
+bool SaveConfigWinAPI(const std::wstring& filename, const Config& config) {
+    HANDLE hFile = CreateFile(filename.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+
+    std::string configStr =
+        "N=" + std::to_string(config.N) + "\n" +
+        "windowWidth=" + std::to_string(config.windowWidth) + "\n" +
+        "windowHeight=" + std::to_string(config.windowHeight) + "\n" +
+        "bgColor=" + std::to_string(GetRValue(config.bgColor)) + "," +
+        std::to_string(GetGValue(config.bgColor)) + "," +
+        std::to_string(GetBValue(config.bgColor)) + "\n" +
+        "gridColor=" + std::to_string(GetRValue(config.gridColor)) + "," +
+        std::to_string(GetGValue(config.gridColor)) + "," +
+        std::to_string(GetBValue(config.gridColor)) + "\n";
+
+    DWORD bytesWritten;
+    WriteFile(hFile, configStr.c_str(), configStr.size(), &bytesWritten, NULL);
+
+    CloseHandle(hFile);
+    return true;
+}
+
+
+
 
 // Основная функция, которая инициализирует и запускает приложение
 int WINAPI wWinMain(HINSTANCE hInt, HINSTANCE hPreve, PWSTR pCom, int nCmdShow)
 {
-    // Загружаем конфигурацию из файла
-    if (!LoadConfig(configFileName, config)) {
-        // Если файл не существует, создаем его с настройками по умолчанию
-        SaveConfig(configFileName, config);
+    if (pCom && *pCom) {
+        std::wistringstream wiss(pCom);
+        std::wstring arg;
+        std::vector<std::wstring> args;
+
+        while (wiss >> arg) { // Разделяем по пробелам
+            args.push_back(arg);
+        }
+
+        if (!args.empty()) {
+            int userVariant = _wtoi(args[0].c_str());
+            if (userVariant > 0 && userVariant <= 4) {
+                chosenVariant = userVariant;
+            }
+        }
+
+        if (args.size() > 1) {
+            int userN = _wtoi(args[1].c_str());
+            if (userN >= 3 && userN <= 20) {
+                nFromCommandLine = userN;
+            }
+        }
     }
+
+    switch (chosenVariant)
+    {
+    case 1:
+        // Загружаем конфигурацию из файла
+        if (!LoadConfigMemoryMapped(configFileNameW, config)) {
+            // Если файл не существует, создаем его с настройками по умолчанию
+            SaveConfigMemoryMapped(configFileNameW, config);
+        }
+    case 2:
+        if (!LoadConfigFOpen(configFileName.c_str(), config)) {
+            // Если файл не существует, создаем его с настройками по умолчанию
+            SaveConfigFopen(configFileName.c_str(), config);
+        }
+    case 3:
+        if (!LoadConfigFstream(configFileName, config)) {
+            // Если файл не существует, создаем его с настройками по умолчанию
+            SaveConfigFstream(configFileName, config);
+        }
+
+    case 4:
+        if (!LoadConfigWinAPI(configFileNameW, config)) {
+            // Если файл не существует, создаем его с настройками по умолчанию
+            SaveConfigWinAPI(configFileNameW, config);
+        }
+        
+    }
+
+
+
+    
     rect = { 0, 0, config.windowHeight, config.windowHeight };
     gridLineColor = config.gridColor;
     backgroundColor = config.bgColor;
     N = config.N;
+
     // Корректируем размеры окна под размеры поля
     AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
 
     // Проверяем, был ли передан аргумент командной строки (параметр N)
-    if (pCom && *pCom) {
-        int userN = _wtoi(pCom); // Преобразуем строку в целое число
-        if (userN >= 3 && userN <= 20) { // Ограничиваем допустимые значения N (от 3 до 20)
-            N = userN;
-        }
+    if (nFromCommandLine) {
+        N = nFromCommandLine;
+        config.N = N;
     }
-    config.N = N;
+    
+    
 
     // Подгоняем размеры окна так, чтобы оно делилось на целые клетки
     WIDTH = (config.windowWidth) / N * N;
@@ -146,7 +487,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     switch (uMsg) {
     case WM_DESTROY:
         // Сохраняем конфигурацию перед закрытием приложения
-        SaveConfig(configFileName, config);
+        switch (chosenVariant)
+        {
+        case 1:
+                SaveConfigMemoryMapped(configFileNameW, config);
+        
+        case 2:
+                SaveConfigFopen(configFileName.c_str(), config);
+            
+        case 3:
+                SaveConfigFstream(configFileName, config);
+            
+
+        case 4:
+                SaveConfigWinAPI(configFileNameW, config);
+            
+
+        }
         PostQuitMessage(0); // Завершаем приложение
         return 0;
 
@@ -255,12 +612,44 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         // Обработчик нажатий клавиш
         if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && wParam == 'Q') {
             // Закрываем окно по комбинации Ctrl+Q
-            SaveConfig(configFileName, config);
+            switch (chosenVariant)
+            {
+            case 1:
+                SaveConfigMemoryMapped(configFileNameW, config);
+
+            case 2:
+                SaveConfigFopen(configFileName.c_str(), config);
+
+            case 3:
+                SaveConfigFstream(configFileName, config);
+
+
+            case 4:
+                SaveConfigWinAPI(configFileNameW, config);
+
+
+            }
             PostMessage(hwnd, WM_CLOSE, 0, 0);
         }
         if (wParam == VK_ESCAPE) {
             // Закрываем окно по клавише ESC
-            SaveConfig(configFileName, config);
+            switch (chosenVariant)
+            {
+            case 1:
+                SaveConfigMemoryMapped(configFileNameW, config);
+
+            case 2:
+                SaveConfigFopen(configFileName.c_str(), config);
+
+            case 3:
+                SaveConfigFstream(configFileName, config);
+
+
+            case 4:
+                SaveConfigWinAPI(configFileNameW, config);
+
+
+            }
             PostMessage(hwnd, WM_CLOSE, 0, 0);
         }
 
@@ -307,65 +696,3 @@ void ChangeBackgroundColor(HWND hwnd) {
     InvalidateRect(hwnd, NULL, TRUE);  // Перерисовываем окно
 }
 
-// Функция для загрузки конфигурации из файла
-// Чтение конфигурации из файла
-bool LoadConfig(const std::string& filename, Config& config) {
-    std::ifstream file(filename);
-    if (!file) {
-        return false; // Файл не существует, возвращаем false
-    }
-
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream iss(line);
-        std::string key;
-        if (std::getline(iss, key, '=')) {
-            if (key == "N") {
-                iss >> config.N;
-            }
-            else if (key == "windowWidth") {
-                iss >> config.windowWidth;
-            }
-            else if (key == "windowHeight") {
-                iss >> config.windowHeight;
-            }
-            else if (key == "bgColor") {
-                int r, g, b;
-                char comma1, comma2;
-                if (iss >> r >> comma1 >> g >> comma2 >> b && comma1 == ',' && comma2 == ',') {
-                    config.bgColor = RGB(r, g, b);
-                }
-            }
-            else if (key == "gridColor") {
-                int r, g, b;
-                char comma1, comma2;
-                if (iss >> r >> comma1 >> g >> comma2 >> b && comma1 == ',' && comma2 == ',') {
-                    config.gridColor = RGB(r, g, b);
-                }
-            }
-        }
-    }
-    return true;
-}
-
-
-// Функция для сохранения конфигурации в файл
-bool SaveConfig(const std::string& filename, const Config& config) {
-    std::ofstream file(filename);
-    if (!file) {
-        return false; // Ошибка при открытии файла для записи
-    }
-
-    file << "N=" << config.N << std::endl;
-    file << "windowWidth=" << config.windowWidth << std::endl;
-    file << "windowHeight=" << config.windowHeight << std::endl;
-    // Запись цветов в конфигурационный файл
-     // Сохраняем цвета в формате R,G,B (каждый компонент числа)
-    file << "bgColor=" << (short)GetRValue(config.bgColor) << ","
-        << (short)GetGValue(config.bgColor) << ","
-        << (short)GetBValue(config.bgColor) << std::endl;
-
-    file << "gridColor=" << (short)GetRValue(config.gridColor) << ","
-        << (short)GetGValue(config.gridColor) << ","
-        << (short)GetBValue(config.gridColor) << std::endl;
-}
