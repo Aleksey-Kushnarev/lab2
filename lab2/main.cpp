@@ -370,12 +370,15 @@ int WINAPI wWinMain(HINSTANCE hInt, HINSTANCE hPreve, PWSTR pCom, int nCmdShow)
         if (!LoadConfigMemoryMapped(configFileNameW, config)) {
             // Если файл не существует, создаем его с настройками по умолчанию
             SaveConfigMemoryMapped(configFileNameW, config);
+
         }
+        break;
     case 2:
         if (!LoadConfigFOpen(configFileName.c_str(), config)) {
             // Если файл не существует, создаем его с настройками по умолчанию
             SaveConfigFopen(configFileName.c_str(), config);
         }
+        break;
     case 3:
         if (!LoadConfigFstream(configFileName, config)) {
             // Если файл не существует, создаем его с настройками по умолчанию
@@ -387,13 +390,14 @@ int WINAPI wWinMain(HINSTANCE hInt, HINSTANCE hPreve, PWSTR pCom, int nCmdShow)
             // Если файл не существует, создаем его с настройками по умолчанию
             SaveConfigWinAPI(configFileNameW, config);
         }
+        break;
         
     }
 
 
 
     
-    rect = { 0, 0, config.windowHeight, config.windowHeight };
+    rect = { 0, 0, config.windowWidth, config.windowHeight };
     gridLineColor = config.gridColor;
     backgroundColor = config.bgColor;
     N = config.N;

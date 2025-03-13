@@ -16,6 +16,8 @@ std::vector<long long> s2;
 std::vector<long long> s3;
 std::vector<long long> s4;
 
+long size = 1024 * 1024;
+
 // Функция для измерения времени
 template<typename F>
 long long measureExecutionTime(F&& func) {
@@ -34,11 +36,11 @@ void createFileWithFstream() {
     std::ofstream file(FILENAME, std::ios::binary);
     if (file) {
         // Динамическое выделение памяти через new
-        char* data = new char[1024*1024]; // 1024*1024 KB
-        memset(data, 'A', 1024*1024); // Заполнение памяти символами 'A'
+        char* data = new char[size]; // 1024 KB
+        memset(data, 'A', size); // Заполнение памяти символами 'A'
 
         // Запись данных в файл
-        file.write(data, 1024*1024);
+        file.write(data, size);
 
         if (file.good()) {
             std::cout << "File good" << std::endl;
@@ -79,7 +81,7 @@ void readWithMemoryMappedFile() {
         return;
     }
 
-    char* buffer = new char[1024*1024];
+    char* buffer = new char[size];
     memcpy(buffer, pMap, sizeof(buffer));
 
     UnmapViewOfFile(pMap);
@@ -95,7 +97,7 @@ void readWithFopen() {
         std::cerr << "Ошибка при открытии файла с использованием fopen" << std::endl;
         return;
     }
-    char* buffer = new char[1024*1024];
+    char* buffer = new char[size];
     fread(buffer, sizeof(char), sizeof(buffer), file);
     fclose(file);
     delete[] buffer;
@@ -108,7 +110,7 @@ void readWithFstream() {
         std::cerr << "Ошибка при открытии файла с использованием fstream" << std::endl;
         return;
     }
-    char* buffer = new char[1024*1024];
+    char* buffer = new char[size];
     file.read(buffer, sizeof(buffer));
     file.close();
     delete[] buffer;
@@ -124,7 +126,7 @@ void readWithWinAPI() {
 
     DWORD bytesRead;
 
-    char* buffer = new char[1024*1024];
+    char* buffer = new char[size];
     ReadFile(hFile, buffer, sizeof(buffer), &bytesRead, NULL);
 
     CloseHandle(hFile);
@@ -134,11 +136,13 @@ void readWithWinAPI() {
 int main() {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
-    // Шаг 1: Создание файла размером 1024*1024 KB
+    // Шаг 1: Создание файла размером 1024 KB
     createFileWithFstream();
     double res;
+
+    int repeats = 100;
     // Шаг 2: Измерение времени для каждого метода
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < repeats; i++) {
         res = static_cast<double>(measureExecutionTime([]() { readWithMemoryMappedFile(); }));
         s1.push_back(res);
         
@@ -152,39 +156,42 @@ int main() {
 
         
     }
-
     double sum = 0;
     std::cout << "=======================" << std::endl;
     std::cout << "MemoryMappedFile" << std::endl;
     for (long long value : s1) {
-        std::cout << value << std::endl;
         sum += value;
     }
+    std::cout << "Average time " << sum / repeats << std::endl;
     std::cout << "Total time " << sum << std::endl;
 
     std::cout << "=======================" << std::endl;
     std::cout << "Fopen" << std::endl;
     sum = 0;
     for (long long value : s2) {
-        std::cout << value << std::endl;
         sum += value;
     }
+
+    std::cout << "Average time " << sum / repeats << std::endl;
     std::cout << "Total time " << sum << std::endl;
     std::cout << "=======================" << std::endl;
     std::cout << "Fstream" << std::endl;
     sum = 0;
     for (long long value : s3) {
-        std::cout << value << std::endl;
         sum += value;
     }
+
+    std::cout << "Average time " << sum / repeats << std::endl;
     std::cout << "Total time " << sum << std::endl;
+
     std::cout << "=======================" << std::endl;
     std::cout << "WinAPI" << std::endl;
     sum = 0;
     for (long long value : s4) {
-        std::cout << value << std::endl;
         sum += value;
     }
+
+    std::cout << "Average time " << sum / repeats << std::endl;
     std::cout << "Total time " << sum << std::endl;
     
 
