@@ -1,57 +1,115 @@
-#define _CRT_SECURE_NO_WARNINGS
-#include <Windows.h>  // Заголовок для работы с WinAPI
-#include <windowsx.h> // Для удобных макросов работы с координатами и сообщениями
-#include <vector>      // Для использования динамических массивов
-#include <fstream>     // Для работы с файловыми потоками (сохранение/чтение конфигурации)
-#include <sstream>     // Для парсинга строк (например, конфигурационных файлов)
-#include <iostream>
-#include <string>
+    #define _CRT_SECURE_NO_WARNINGS
+    #include <Windows.h>  // Заголовок для работы с WinAPI
+    #include <windowsx.h> // Для удобных макросов работы с координатами и сообщениями
+    #include <vector>      // Для использования динамических массивов
+    #include <fstream>     // Для работы с файловыми потоками (сохранение/чтение конфигурации)
+    #include <sstream>     // Для парсинга строк (например, конфигурационных файлов)
+    #include <iostream>
+    #include <string>
 
-#include <cstdio>
+    #include <cstdio>
 
-// Структура для хранения информации о фигурах (круги и крестики)
-struct Shape {
-    int col, row;  // Координаты фигуры в сетке
-    bool isCircle; // true - круг, false - крестик
+    // Структура для хранения информации о фигурах (круги и крестики)
+    struct Shape {
+        int col, row;  // Координаты фигуры в сетке
+        bool isCircle; // true - круг, false - крестик
 
-};
+    };
 
-// Структура для хранения конфигурации приложения
-struct Config {
-    int N = 5;                  // Размер поля (N x N клеток)
-    int windowWidth = 320;      // Ширина окна
-    int windowHeight = 240;     // Высота окна
-    COLORREF bgColor = RGB(0, 0, 255);  // Цвет фона (по умолчанию синий)
-    COLORREF gridColor = RGB(255, 0, 0);  // Цвет сетки (по умолчанию красный)
-};
+    // Структура для хранения конфигурации приложения
+    struct Config {
+        int N = 5;                  // Размер поля (N x N клеток)
+        int windowWidth = 320;      // Ширина окна
+        int windowHeight = 240;     // Высота окна
+        COLORREF bgColor = RGB(0, 0, 255);  // Цвет фона (по умолчанию синий)
+        COLORREF gridColor = RGB(255, 0, 0);  // Цвет сетки (по умолчанию красный)
+    };
 
-// Инициализация размеров окна
-RECT rect;  // Координаты окна
-int red = 255, green = 0, blue = 0; // Начальный цвет (красный)
-int N;
-const int colorStep = 2;  // Шаг изменения цвета (по мере прокрутки колеса мыши)
-COLORREF gridLineColor;  // Цвет линий сетки
-COLORREF backgroundColor;  // Цвет фона
-int WIDTH, HEIGHT; // Ширина и высота окна
-int SizeCellsX, SizeCellsY; // Размер одной клетки по горизонтали и вертикали
-int chosenVariant = 1;
-int nFromCommandLine;
+    // Инициализация размеров окна
+    RECT rect;  // Координаты окна
+    int red = 255, green = 0, blue = 0; // Начальный цвет (красный)
+    int N;
+    const int colorStep = 2;  // Шаг изменения цвета (по мере прокрутки колеса мыши)
+    COLORREF gridLineColor;  // Цвет линий сетки
+    COLORREF backgroundColor;  // Цвет фона
+    int WIDTH, HEIGHT; // Ширина и высота окна
+    int SizeCellsX, SizeCellsY; // Размер одной клетки по горизонтали и вертикали
+    int chosenVariant = 1;
+    int nFromCommandLine;
+
+    const int initialX = 0;
+    const int initialY = 0;
+    int offsetX = 400; // Смещение по X (ширина окна + запас)
+    int offsetY = 300; // Смещение по Y (высота окна + запас)
+    const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    struct SharedData {
+        int instances;     // сколько программ запущено
+        int field[20][20];        
+        COLORREF bgColor;
+        int nextWindowX;          // Следующая позиция по X
+        int nextWindowY;          // Следующая позиция по Y
+    };
 
 
-const std::string configFileName = "config.txt";  // Имя файла для конфигурации
-const std::wstring configFileNameW = L"config.txt";  // Имя файла для конфигурации (для широких символов)
+    const std::string configFileName = "config.txt";  // Имя файла для конфигурации
+    const std::wstring configFileNameW = L"config.txt";  // Имя файла для конфигурации (для широких символов)
 
-Config config;  // Переменная для хранения конфигурации
+    Config config;  // Переменная для хранения конфигурации
 
-std::vector<Shape> shapes; // Массив для хранения фигур (круги и крестики)
+    std::vector<Shape> shapes; // Массив для хранения фигур (круги и крестики)
 
-// Обработчик сообщений окна
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    // Обработчик сообщений окна
+    LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
-// Функции для работы с конфигурацией (чтение и сохранение)
-void ChangeBackgroundColor(HWND hwnd);
+    // Функции для работы с конфигурацией (чтение и сохранение)
+    void ChangeBackgroundColor(HWND hwnd);
 
+    // Пользовательское сообщение для обновления игрового поля
+    // Используется для синхронизации состояния поля между экземплярами приложения
+    #define WM_GAME_UPDATE (WM_USER + 1)
 
+    SharedData* sharedData = nullptr;
+    HANDLE hMapping = NULL;
+    HWND hwndMain = NULL;
+    const wchar_t* SHARED_MEMORY_NAME = L"Global\\MainWinAPI";
+    // Функции работы с памятью
+    bool InitSharedMemory() {
+        hMapping = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, SHARED_MEMORY_NAME);
+        if (!hMapping) {
+            hMapping = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(SharedData), SHARED_MEMORY_NAME);
+            if (!hMapping) {
+                MessageBox(NULL, L"Не удалось создать разделяемую память.", L"Ошибка", MB_OK | MB_ICONERROR);
+                return false;
+            }
+        }
+
+        sharedData = (SharedData*)MapViewOfFile(hMapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedData));
+        if (!sharedData) {
+            MessageBox(NULL, L"Не удалось отобразить разделяемую память.", L"Ошибка", MB_OK | MB_ICONERROR);
+            return false;
+        }
+        return true;
+    }
+
+    void IncrementInstanceCount() {
+        if (sharedData) {
+            sharedData->instances++;
+            if (sharedData->instances == 1) {
+                ZeroMemory(sharedData->field, sizeof(sharedData->field));
+            }
+        }
+    }
+
+    void DecrementInstanceCount() {
+        if (sharedData) {
+            sharedData->instances--;
+            if (sharedData->instances == 0) {
+                ZeroMemory(sharedData->field, sizeof(sharedData->field));
+            }
+        }
+    }
 
 
 // Функция для загрузки конфигурации из файла
@@ -399,7 +457,7 @@ int WINAPI wWinMain(HINSTANCE hInt, HINSTANCE hPreve, PWSTR pCom, int nCmdShow)
     
     rect = { 0, 0, config.windowWidth, config.windowHeight };
     gridLineColor = config.gridColor;
-    backgroundColor = config.bgColor;
+    
     N = config.N;
 
     // Корректируем размеры окна под размеры поля
@@ -411,13 +469,38 @@ int WINAPI wWinMain(HINSTANCE hInt, HINSTANCE hPreve, PWSTR pCom, int nCmdShow)
         config.N = N;
     }
     
-    
-
+    if (!InitSharedMemory()) {
+        return -1; // Ошибка инициализации
+    }
+    sharedData->bgColor = config.bgColor;
+    backgroundColor = sharedData->bgColor;
     // Подгоняем размеры окна так, чтобы оно делилось на целые клетки
     WIDTH = (config.windowWidth) / N * N;
     HEIGHT = (config.windowHeight) / N * N;
     SizeCellsX = WIDTH / N;
     SizeCellsY = HEIGHT / N;
+    offsetY = HEIGHT;
+    offsetX = WIDTH;
+
+    // Перемещаем окно на следующую позицию
+    int windowX = sharedData->nextWindowX;
+    int windowY = sharedData->nextWindowY;
+
+    // Увеличиваем координаты для следующего окна
+    sharedData->nextWindowX += offsetX;
+
+    // Если окно вылезло за правый край экрана, переносим его на новую строку
+    if (sharedData->nextWindowX + config.windowWidth > screenWidth) {
+        sharedData->nextWindowX = initialX;  // Вернуть на начальную позицию по X
+        sharedData->nextWindowY += offsetY;  // Переместить вниз по Y
+    }
+
+    // Если окно выходит за нижний край экрана, можно обрабатывать это отдельно (если нужно)
+    if (sharedData->nextWindowY + config.windowHeight > screenHeight) {
+        sharedData->nextWindowY = initialY;  // Вернуть на начальную позицию по Y (если нужно)
+        // Можно сбросить sharedData->nextWindowX, если хотите начать с левого верхнего угла
+        sharedData->nextWindowX = initialX;
+    }
 
     // Регистрация класса окна
     // Инициализация структуры WNDCLASS, которая используется для регистрации класса окна.
@@ -456,11 +539,11 @@ int WINAPI wWinMain(HINSTANCE hInt, HINSTANCE hPreve, PWSTR pCom, int nCmdShow)
 
     // Создание окна с нужными размерами
     CreateWindowW(
-        L"MainWinAPICLass",
+        L"MainWinAPIClass",
         L"Firsr C++ WinApi Application",
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        100,
-        100,
+        windowX,
+        windowY,
         WIDTH + (GetSystemMetrics(SM_CXFRAME) * 2) + 10, // Ширина с учетом рамок и отступов
         HEIGHT + GetSystemMetrics(SM_CYFRAME) * 2 + GetSystemMetrics(SM_CYCAPTION) + 10,
         NULL,
@@ -486,9 +569,29 @@ int WINAPI wWinMain(HINSTANCE hInt, HINSTANCE hPreve, PWSTR pCom, int nCmdShow)
     return 0;
 }
 
+HWND hwndSource = NULL; // глобальная переменная
+
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
+{
+    wchar_t className[256];
+    GetClassName(hwnd, className, sizeof(className) / sizeof(wchar_t));
+
+    if (wcscmp(className, L"MainWinAPIClass") == 0 && hwnd != hwndSource)
+    {
+        PostMessage(hwnd, WM_GAME_UPDATE, 0, 0);
+    }
+    return TRUE;
+}
+
+
 // Функция для обработки сообщений окна
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+
+    case WM_CREATE:
+        IncrementInstanceCount();
+        break;
+
     case WM_DESTROY:
         // Сохраняем конфигурацию перед закрытием приложения
         switch (chosenVariant)
@@ -508,58 +611,141 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             
 
         }
+        sharedData->instances--;
+        DecrementInstanceCount();
+
+        if (sharedData) {
+            UnmapViewOfFile(sharedData);
+            sharedData = nullptr;
+        }
+        if (hMapping) {
+            CloseHandle(hMapping);
+            hMapping = NULL;
+        }
+        
+
+
         PostQuitMessage(0); // Завершаем приложение
         return 0;
 
     case WM_PAINT: {
-        // Обработчик отрисовки окна
         PAINTSTRUCT pnt;
         HDC hdc = BeginPaint(hwnd, &pnt);
+        backgroundColor = sharedData->bgColor;
+        // Заливаем фон
+        HBRUSH hBrush = CreateSolidBrush(backgroundColor);
+        FillRect(hdc, &rect, hBrush);
+        DeleteObject(hBrush);
 
         // Рисуем сетку
-        HPEN hPen = CreatePen(PS_SOLID, 1, gridLineColor); // Создаем перо для линий сетки
+        HPEN hPen = CreatePen(PS_SOLID, 1, gridLineColor);
         HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
         for (int i = 0; i <= N; i++) {
-            // Рисуем вертикальные линии сетки
-            MoveToEx(hdc, (SizeCellsX * i), 0, NULL);
+            MoveToEx(hdc, SizeCellsX * i, 0, NULL);
             LineTo(hdc, SizeCellsX * i, HEIGHT);
 
-            // Рисуем горизонтальные линии сетки
-            MoveToEx(hdc, 0, (SizeCellsY * i), NULL);
-            LineTo(hdc, WIDTH, (SizeCellsY * i));
+            MoveToEx(hdc, 0, SizeCellsY * i, NULL);
+            LineTo(hdc, WIDTH, SizeCellsY * i);
         }
         SelectObject(hdc, hOldPen);
-        DeleteObject(hPen); // Освобождаем ресурсы
+        DeleteObject(hPen);
 
-        // Рисуем сохраненные фигуры (круги и крестики)
-        HPEN hShapePen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));  // Белые линии для фигур
-        HPEN hOldShapePen = (HPEN)SelectObject(hdc, hShapePen);
+        // Рисуем крестики и нолики по sharedData->field
+        HPEN hShapePen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255)); // Чёрные линии для фигур
+        hOldPen = (HPEN)SelectObject(hdc, hShapePen);
+        OutputDebugString(L"WM_PAINT вызывается\n");
+        for (int y = 0; y < N; y++) {
+            for (int x = 0; x < N; x++) {
+                int left = x * SizeCellsX;
+                int top = y * SizeCellsY;
+                int right = (x + 1) * SizeCellsX;
+                int bottom = (y + 1) * SizeCellsY;
 
-        for (const auto& shape : shapes) {
-            // Вычисляем координаты для каждой фигуры в сетке
-            int left = shape.col * SizeCellsX;
-            int top = shape.row * SizeCellsY;
-            int right = (shape.col + 1) * SizeCellsX;
-            int bottom = (shape.row + 1) * SizeCellsY;
+                if (sharedData && sharedData->field) {
+                    int symbol = sharedData->field[y][x];
 
-            if (shape.isCircle) {
-                Arc(hdc, left, top, right, bottom, 0, 0, 0, 0);  // Рисуем круг
-            }
-            else {
-                // Рисуем крестик
-                MoveToEx(hdc, left, top, NULL);
-                LineTo(hdc, right, bottom);
-                MoveToEx(hdc, right, top, NULL);
-                LineTo(hdc, left, bottom);
+                    if (symbol == 1) { // Крестик
+                        MoveToEx(hdc, left, top, NULL);
+                        LineTo(hdc, right, bottom);
+                        MoveToEx(hdc, right, top, NULL);
+                        LineTo(hdc, left, bottom);
+                    }
+                    else if (symbol == 2) { // Нолик
+                        Arc(hdc, left, top, right, bottom, 0, 0, 0, 0);
+                    }
+                }
             }
         }
 
-        SelectObject(hdc, hOldShapePen);
-        DeleteObject(hShapePen); // Освобождаем ресурсы
+        SelectObject(hdc, hOldPen);
+        DeleteObject(hShapePen);
 
-        EndPaint(hwnd, &pnt); // Завершаем отрисовку
+        EndPaint(hwnd, &pnt);
         return 0;
     }
+
+    case WM_RBUTTONDOWN: {
+        int x = GET_X_LPARAM(lParam);
+        int y = GET_Y_LPARAM(lParam);
+
+        if (x >= SizeCellsX * N || y >= SizeCellsY * N) {
+            MessageBox(NULL, L"КЛИК ЗА ПРЕДЕЛАМИ", L"Ошибка", MB_OK | MB_ICONERROR);
+            return 0;
+        }  // Клик за пределами
+
+        int col = x / SizeCellsX;
+        int row = y / SizeCellsY;
+
+       
+        
+
+        // Проверка на пустое место
+        if (sharedData->field[row][col] == 0) { // Если ячейка пуста (0)
+            sharedData->field[row][col] = 1; // Пишем крестик (1) в общую память
+            
+            // Сообщаем всем окнам перерисовать поле
+            EnumWindows(EnumWindowsProc, 0);
+        }
+        
+
+        return 0;
+    }
+
+
+    case WM_GAME_UPDATE: {
+        InvalidateRect(hwnd, NULL, TRUE);
+        return 0;
+    }
+
+
+    case WM_LBUTTONDOWN: {
+        int x = GET_X_LPARAM(lParam);
+        int y = GET_Y_LPARAM(lParam);
+
+        if (x >= SizeCellsX * N || y >= SizeCellsY * N) {
+            MessageBox(NULL, L"КЛИК ЗА ПРЕДЕЛАМИ", L"Ошибка", MB_OK | MB_ICONERROR);
+            return 0;
+        }  // Клик за пределами
+
+        int col = x / SizeCellsX;
+        int row = y / SizeCellsY;
+
+
+
+
+        // Проверка на пустое место
+        if (sharedData->field[row][col] == 0) { // Если ячейка пуста (0)
+            sharedData->field[row][col] = 2; // Пишем Кружок (2) в общую память
+            
+            // Сообщаем всем окнам перерисовать поле
+            EnumWindows(EnumWindowsProc, 0);
+        }
+
+
+        return 0;
+    }
+
+    
 
     case WM_SIZE:
     {
@@ -570,48 +756,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         config.windowHeight = HEIGHT;
         SizeCellsX = WIDTH / N;  // Новый размер клетки
         SizeCellsY = HEIGHT / N;
-        InvalidateRect(hwnd, NULL, TRUE); // Перерисовываем окно
+        InvalidateRect(hwnd, NULL, TRUE); // Только своё окно перерисовать
+        //Перерисовываем окно
         return 0;
     }
-
-    case WM_LBUTTONDOWN: { // ЛКМ - круг
-        // Обработчик нажатия левой кнопки мыши
-        int x = GET_X_LPARAM(lParam);
-        int y = GET_Y_LPARAM(lParam);
-        if (x >= SizeCellsX * N || y >= SizeCellsY * N) return 0;  // Если кликаем за пределами поля
-
-        int col = x / SizeCellsX;  // Определяем колонку
-        int row = y / SizeCellsY;  // Определяем строку
-        for (const Shape& shape : shapes) {
-            if (shape.col == col && shape.row == row) {
-                return 0; // Если фигура уже существует в этой ячейке
-            }
-        }
-        shapes.push_back({ col, row, true });  // Добавляем круг
-        
-        InvalidateRect(hwnd, NULL, FALSE);  // Перерисовываем окно
-        return 0;
-    }
-
-    case WM_RBUTTONDOWN: { // ПКМ - крестик
-        // Обработчик нажатия правой кнопки мыши
-        int x = GET_X_LPARAM(lParam);
-        int y = GET_Y_LPARAM(lParam);
-        if (x >= SizeCellsX * N || y >= SizeCellsY * N) return 0;  // Если кликаем за пределами поля
-
-        int col = x / SizeCellsX;
-        int row = y / SizeCellsY;
-        for (const Shape& shape : shapes) {
-            if (shape.col == col && shape.row == row) {
-                return 0; // Если фигура уже существует
-            }
-        }
-        shapes.push_back({ col, row, false });  // Добавляем крестик
-
-        InvalidateRect(hwnd, NULL, FALSE);  // Перерисовываем окно
-        return 0;
-    }
-
     case WM_KEYDOWN: {
         // Обработчик нажатий клавиш
         if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && wParam == 'Q') {
@@ -684,7 +832,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
         return 0;
     }
-
+    
     default:
         return DefWindowProc(hwnd, uMsg, wParam, lParam);  // Обработка остальных сообщений
     }
@@ -697,6 +845,7 @@ void ChangeBackgroundColor(HWND hwnd) {
     config.bgColor = backgroundColor;
     // Устанавливаем новый цвет фона
     SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)CreateSolidBrush(backgroundColor));
-    InvalidateRect(hwnd, NULL, TRUE);  // Перерисовываем окно
+    sharedData->bgColor = backgroundColor;
+    EnumWindows(EnumWindowsProc, 0);
 }
 

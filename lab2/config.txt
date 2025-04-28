@@ -1,5 +1,5 @@
-N=4
-windowWidth=658
+N=5
+windowWidth=322
 windowHeight=242
-bgColor=0,0,255
+bgColor=235,179,166
 gridColor=255,0,0
